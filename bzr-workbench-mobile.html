@@ -2614,7 +2614,7 @@ function migrateDB(db){
   }
   db._ver=DB_VER;
 }
-function saveDB(){localStorage.setItem(DB_KEY,JSON.stringify(DB))}
+function saveDB(){localStorage.setItem(DB_KEY,JSON.stringify(DB));autoCloudUpload()}
 function resetDB(){
   localStorage.removeItem(DB_KEY);
   DB=defaultDB();seedDemo();saveDB();
@@ -2657,6 +2657,15 @@ function cloudSyncPanel(){
         <div class="xs muted">上次同步时间</div>
         <div style="font-size:13px;margin-top:4px">${esc(lastSync)}</div>
       </div>
+      <div style="margin-top:16px;padding:12px;background:#e8f5e9;border-radius:8px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="autoSyncChk" style="width:18px;height:18px;cursor:pointer">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#2e7d32">开启自动同步</div>
+            <div class="xs" style="color:#558b2f;margin-top:2px">编辑后自动上传 · 打开页面自动检查更新</div>
+          </div>
+        </label>
+      </div>
       <div style="margin-top:16px;padding:12px;background:#fff3e0;border-radius:8px">
         <p class="xs" style="line-height:1.6;color:var(--amber)">
           <b>使用说明：</b><br>
@@ -2668,7 +2677,7 @@ function cloudSyncPanel(){
       </div>
     </div>
   `);
-  setTimeout(()=>{const inp=$('#cloudToken');if(inp)inp.oninput=()=>setSyncToken(inp.value.trim())},100);
+  setTimeout(()=>{const inp=$('#cloudToken');if(inp)inp.oninput=()=>setSyncToken(inp.value.trim());const autoChk=document.getElementById('autoSyncChk');if(autoChk){autoChk.checked=isAutoSyncEnabled();autoChk.onchange=()=>setAutoSync(autoChk.checked)}},100);
 }
 
 async function cloudUpload(){
@@ -2683,7 +2692,7 @@ async function cloudUpload(){
   if(sha)body.sha=sha;
   try{
     const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}`,{method:'PUT',headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(r.ok){const now=new Date();const ts=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;localStorage.setItem('cloud_last_sync',ts);toast('数据已上传到云端 ✓');closeSheet()}
+    if(r.ok){const now=new Date();const ts=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;localStorage.setItem('cloud_last_sync',ts);localStorage.setItem('cloud_last_sync_ts',String(Date.now()));toast('数据已上传到云端 ✓');closeSheet()}
     else{const err=await r.json();toast('上传失败: '+(err.message||r.status),'err')}
   }catch(e){toast('网络错误: '+e.message,'err')}
 }
@@ -2705,9 +2714,75 @@ async function cloudDownload(){
       const now=new Date();
       const ts=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
       localStorage.setItem('cloud_last_sync',ts);
+      localStorage.setItem('cloud_last_sync_ts',String(new Date(j.commit.commit.committer.date).getTime()));
       closeSheet();toast('已从云端恢复数据 ✓');
     });
   }catch(e){toast('下载失败: '+e.message,'err')}
+}
+
+/* ============ 自动同步 ============ */
+let _autoSyncTimer=null;
+function isAutoSyncEnabled(){return localStorage.getItem('auto_sync')==='1'}
+function setAutoSync(enabled){localStorage.setItem('auto_sync',enabled?'1':'0')}
+
+function autoCloudUpload(){
+  if(!isAutoSyncEnabled())return;
+  const token=getSyncToken();
+  if(!token)return;
+  if(_autoSyncTimer)clearTimeout(_autoSyncTimer);
+  _autoSyncTimer=setTimeout(()=>{
+    _autoSyncTimer=null;
+    const data=JSON.stringify(DB);
+    const b64=btoa(unescape(encodeURIComponent(data)));
+    let sha=null;
+    fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}`,{
+      headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
+    }).then(r=>{if(r.ok)return r.json();return null}).then(j=>{if(j)sha=j.sha}).finally(()=>{
+      const body={message:'自动同步 '+new Date().toLocaleString('zh-CN'),content:b64,branch:'main'};
+      if(sha)body.sha=sha;
+      fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}`,{
+        method:'PUT',
+        headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
+        body:JSON.stringify(body)
+      }).then(r=>{
+        if(r.ok){
+          const now=new Date();
+          const ts=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+          localStorage.setItem('cloud_last_sync',ts);
+        }
+      }).catch(()=>{});
+    });
+  },3000);
+}
+
+async function autoCloudCheck(){
+  if(!isAutoSyncEnabled())return;
+  const token=getSyncToken();
+  if(!token)return;
+  try{
+    const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}?_t=${Date.now()}`,{
+      headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
+    });
+    if(!r.ok)return;
+    const j=await r.json();
+    const data=JSON.parse(decodeURIComponent(escape(atob(j.content))));
+    if(!data.classes||!data.classes.length)return;
+    const localTs=parseInt(localStorage.getItem('cloud_last_sync_ts')||'0');
+    const cloudTs=new Date(j.commit.commit.committer.date).getTime();
+    if(cloudTs>localTs){
+      confirmBox('检测到云端有更新的数据，是否同步到本地？',()=>{
+        DB=data;
+        if(!DB.mySchedule)DB.mySchedule=makeMySchedule();
+        if(!DB._ver)DB._ver=DB_VER;
+        localStorage.setItem('cloud_last_sync_ts',String(cloudTs));
+        saveDB();buildNav();render();refreshAll();
+        const now=new Date();
+        const ts=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        localStorage.setItem('cloud_last_sync',ts);
+        toast('已从云端同步最新数据 ✓');
+      });
+    }
+  }catch(e){}
 }
 
 function syncExport(){
@@ -5421,6 +5496,8 @@ function init(){
   go('home_page');
   // 自动加载外部日报/趋势数据文件
   loadExternalReports();
+  // 自动检查云端同步
+  setTimeout(autoCloudCheck,2000);
 }
 /* 从服务器文件加载自动生成的日报和趋势报告 */
 function loadExternalReports(){
