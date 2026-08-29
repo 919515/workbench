@@ -2627,14 +2627,46 @@ function resetDB(){
 const CLOUD_REPO='919515/workbench';
 const CLOUD_FILE='user_data.json';
 const TOKEN_KEY='gh_sync_token';
-const _DT=['ghp_o','CU1XA','02vMR','snT3y','mbFod','bwDLG','fw2H3','aT3pg'];
 
-function getSyncToken(){return localStorage.getItem(TOKEN_KEY)||_DT.join('')}
+function getSyncToken(){return localStorage.getItem(TOKEN_KEY)||''}
 function setSyncToken(t){localStorage.setItem(TOKEN_KEY,t)}
 
 function cloudSyncPanel(){
   const token=getSyncToken();
   const lastSync=localStorage.getItem('cloud_last_sync')||'从未同步';
+  if(!token){
+    openSheet('☁️ 云端同步 - 首次配置',`
+      <div style="padding:16px">
+        <div style="text-align:center;padding:16px 0">
+          <div style="font-size:48px;margin-bottom:8px">🔐</div>
+          <h3 style="font-size:16px;margin-bottom:6px">需要配置 GitHub Token</h3>
+          <p style="font-size:13px;color:var(--muted);line-height:1.8">
+            配置后即可启用<b>跨设备自动同步</b><br>
+            Token 仅保存在你的浏览器中，不会泄露
+          </p>
+        </div>
+        <div style="background:#fff3e0;border-radius:10px;padding:14px;margin-bottom:14px">
+          <p style="font-size:12px;line-height:2;color:#e65100">
+            <b>创建步骤：</b><br>
+            1. 点击下方按钮前往 GitHub<br>
+            2. 勾选 <code style="background:#fff;padding:1px 4px;border-radius:3px">repo</code> 权限（必须）<br>
+            3. 点击底部绿色按钮生成 Token<br>
+            4. 复制 Token 粘贴到下方输入框
+          </p>
+          <a href="https://github.com/settings/tokens/new?scopes=repo&description=班主任工作台数据同步" target="_blank" class="btn btn-pri" style="display:inline-flex;margin-top:8px">
+            🔗 前往 GitHub 创建 Token
+          </a>
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">粘贴 GitHub Token</label>
+          <input type="text" id="tokenInputInline" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="width:100%;padding:10px 12px;border:2px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace" autocomplete="off">
+        </div>
+        <button class="btn btn-pri" style="width:100%" onclick="saveTokenInline()">✓ 验证并启用同步</button>
+        <div id="tokenMsgInline" style="margin-top:8px;font-size:12px;text-align:center"></div>
+      </div>
+    `);
+    return;
+  }
   openSheet('☁️ 云端同步',`
     <div style="padding:16px">
       <p class="muted" style="line-height:1.8;margin-bottom:16px">
@@ -2644,8 +2676,9 @@ function cloudSyncPanel(){
       </p>
       <div style="margin-bottom:16px">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">GitHub Token</label>
-        <div style="padding:10px 12px;background:#e8f5e9;border-radius:8px;font-size:13px;color:#2e7d32">
-          ✓ Token 已内置配置，无需手动设置
+        <div style="padding:10px 12px;background:#e8f5e9;border-radius:8px;font-size:13px;color:#2e7d32;display:flex;justify-content:space-between;align-items:center">
+          <span>✓ Token 已配置</span>
+          <button class="btn btn-out" style="font-size:11px;padding:4px 10px" onclick="localStorage.removeItem('${TOKEN_KEY}');closeSheet();cloudSyncPanel()">更换 Token</button>
         </div>
       </div>
       <div style="display:flex;gap:10px;margin-bottom:16px">
@@ -2668,15 +2701,68 @@ function cloudSyncPanel(){
       <div style="margin-top:16px;padding:12px;background:#fff3e0;border-radius:8px">
         <p class="xs" style="line-height:1.6;color:var(--amber)">
           <b>使用说明：</b><br>
-          1. 先在上方填入 GitHub Token 并保存<br>
-          2. 点击「上传到云端」将当前数据保存到云端<br>
-          3. 在另一台设备打开此页面，点击「从云端恢复」<br>
-          4. 建议每次编辑后上传，切换设备前下载
+          1. Token 仅需配置一次，更换浏览器/设备时需重新配置<br>
+          2. 配置后编辑数据将自动上传到云端<br>
+          3. 在另一台设备打开页面会自动检测并同步<br>
+          4. 也可手动点击上传/下载进行同步
         </p>
       </div>
     </div>
   `);
   setTimeout(()=>{const autoChk=document.getElementById('autoSyncChk');if(autoChk){autoChk.checked=isAutoSyncEnabled();autoChk.onchange=()=>setAutoSync(autoChk.checked)}},100);
+}
+
+async function saveTokenInline(){
+  const token=document.getElementById('tokenInputInline').value.trim();
+  const msg=document.getElementById('tokenMsgInline');
+  if(!token){msg.style.color='#c62828';msg.textContent='请输入 Token';return}
+  if(!token.startsWith('ghp_')&&!token.startsWith('github_pat_')){msg.style.color='#c62828';msg.textContent='Token 格式不正确，应以 ghp_ 或 github_pat_ 开头';return}
+  msg.style.color='#f57c00';msg.textContent='正在验证 Token...';
+  try{
+    const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}`,{
+      headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
+    });
+    if(!r.ok){
+      if(r.status===401)throw new Error('Token 无效或已过期');
+      if(r.status===403)throw new Error('Token 权限不足，请确保勾选了 repo 权限');
+      throw new Error('验证失败: HTTP '+r.status);
+    }
+    setSyncToken(token);
+    localStorage.setItem('auto_sync','1');
+    msg.style.color='#2e7d32';msg.textContent='✓ Token 验证成功，自动同步已启用！正在上传数据...';
+    setTimeout(()=>{
+      if(typeof closeSheet==='function')closeSheet();
+      cloudSyncPanel();
+      autoCloudUpload();
+    },1500);
+  }catch(e){
+    msg.style.color='#c62828';msg.textContent='✗ '+e.message;
+  }
+}
+
+async function validateToken(token){
+  try{
+    const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}`,{
+      headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
+    });
+    return r.ok;
+  }catch(e){return false}
+}
+
+async function checkTokenStatus(){
+  const token=getSyncToken();
+  const st=$('#cloudSyncStatus');
+  if(!token){
+    if(st)st.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">点击配置Token</a></span>';
+    return;
+  }
+  const valid=await validateToken(token);
+  if(!valid){
+    localStorage.removeItem(TOKEN_KEY);
+    if(st)st.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">Token已失效，点击重新配置</a></span>';
+  }else{
+    if(st)st.textContent='☁️ 自动同步已启用';
+  }
 }
 
 async function cloudUpload(){
@@ -2748,6 +2834,10 @@ function autoCloudUpload(){
           const ts=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
           localStorage.setItem('cloud_last_sync',ts);
           localStorage.setItem('cloud_last_sync_ts',String(Date.now()));
+          const st=$('#cloudSyncStatus');if(st)st.textContent='☁️ 已同步: '+ts;
+        }else if(r.status===401||r.status===403){
+          localStorage.removeItem(TOKEN_KEY);
+          const st=$('#cloudSyncStatus');if(st)st.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">Token已失效</a></span>';
         }
       }).catch(()=>{});
     });
@@ -2762,6 +2852,12 @@ async function autoCloudCheck(){
     const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}?_t=${Date.now()}`,{
       headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
     });
+    if(r.status===401||r.status===403){
+      localStorage.removeItem(TOKEN_KEY);
+      const st=$('#cloudSyncStatus');
+      if(st)st.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">Token已失效</a></span>';
+      return;
+    }
     if(!r.ok)return;
     const j=await r.json();
     const data=JSON.parse(decodeURIComponent(escape(atob(j.content))));
@@ -5495,8 +5591,11 @@ function init(){
   go('home_page');
   // 自动加载外部日报/趋势数据文件
   loadExternalReports();
-  // 自动检查云端同步
-  setTimeout(autoCloudCheck,2000);
+  // 检查 Token 状态并自动同步
+  setTimeout(async()=>{
+    await checkTokenStatus();
+    autoCloudCheck();
+  },2000);
 }
 /* 从服务器文件加载自动生成的日报和趋势报告 */
 function loadExternalReports(){

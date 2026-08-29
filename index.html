@@ -2365,14 +2365,46 @@ function resetDB(){
 const CLOUD_REPO='919515/workbench';
 const CLOUD_FILE='user_data.json';
 const TOKEN_KEY='gh_sync_token';
-const _DT=['ghp_o','CU1XA','02vMR','snT3y','mbFod','bwDLG','fw2H3','aT3pg'];
 
-function getSyncToken(){return localStorage.getItem(TOKEN_KEY)||_DT.join('')}
+function getSyncToken(){return localStorage.getItem(TOKEN_KEY)||''}
 function setSyncToken(t){localStorage.setItem(TOKEN_KEY,t)}
 
 function cloudSyncPanel(){
   const token=getSyncToken();
   const lastSync=localStorage.getItem('cloud_last_sync')||'从未同步';
+  if(!token){
+    openSheet('☁️ 云端同步 - 首次配置',`
+      <div style="padding:16px">
+        <div style="text-align:center;padding:16px 0">
+          <div style="font-size:48px;margin-bottom:8px">🔐</div>
+          <h3 style="font-size:16px;margin-bottom:6px">需要配置 GitHub Token</h3>
+          <p style="font-size:13px;color:var(--muted);line-height:1.8">
+            配置后即可启用<b>跨设备自动同步</b><br>
+            Token 仅保存在你的浏览器中，不会泄露
+          </p>
+        </div>
+        <div style="background:#fff3e0;border-radius:10px;padding:14px;margin-bottom:14px">
+          <p style="font-size:12px;line-height:2;color:#e65100">
+            <b>创建步骤：</b><br>
+            1. 点击下方按钮前往 GitHub<br>
+            2. 勾选 <code style="background:#fff;padding:1px 4px;border-radius:3px">repo</code> 权限（必须）<br>
+            3. 点击底部绿色按钮生成 Token<br>
+            4. 复制 Token 粘贴到下方输入框
+          </p>
+          <a href="https://github.com/settings/tokens/new?scopes=repo&description=班主任工作台数据同步" target="_blank" class="btn btn-pri" style="display:inline-flex;margin-top:8px">
+            🔗 前往 GitHub 创建 Token
+          </a>
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">粘贴 GitHub Token</label>
+          <input type="text" id="tokenInputInline" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="width:100%;padding:10px 12px;border:2px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace" autocomplete="off">
+        </div>
+        <button class="btn btn-pri" style="width:100%" onclick="saveTokenInline()">✓ 验证并启用同步</button>
+        <div id="tokenMsgInline" style="margin-top:8px;font-size:12px;text-align:center"></div>
+      </div>
+    `);
+    return;
+  }
   openSheet('☁️ 云端同步',`
     <div style="padding:16px">
       <p class="muted" style="line-height:1.8;margin-bottom:16px">
@@ -2380,24 +2412,21 @@ function cloudSyncPanel(){
         在电脑上编辑的数据可上传到云端，手机上下载恢复。<br>
         数据存储在你的私有 GitHub 仓库中，安全可靠。
       </p>
-
       <div style="margin-bottom:16px">
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">GitHub Token</label>
-        <div style="padding:10px 12px;background:#e8f5e9;border-radius:8px;font-size:13px;color:#2e7d32">
-          ✓ Token 已内置配置，无需手动设置
+        <div style="padding:10px 12px;background:#e8f5e9;border-radius:8px;font-size:13px;color:#2e7d32;display:flex;justify-content:space-between;align-items:center">
+          <span>✓ Token 已配置</span>
+          <button class="btn btn-out" style="font-size:11px;padding:4px 10px" onclick="localStorage.removeItem('${TOKEN_KEY}');closeSheet();cloudSyncPanel()">更换 Token</button>
         </div>
       </div>
-
       <div style="display:flex;gap:10px;margin-bottom:16px">
         <button class="btn btn-pri" style="flex:1" onclick="cloudUpload()">⬆️ 上传到云端</button>
         <button class="btn btn-out" style="flex:1" onclick="cloudDownload()">⬇️ 从云端恢复</button>
       </div>
-
       <div style="background:var(--card);border-radius:10px;padding:12px;text-align:center">
         <div class="xs muted">上次同步时间</div>
         <div style="font-size:13px;margin-top:4px">${esc(lastSync)}</div>
       </div>
-
       <div style="margin-top:16px;padding:12px;background:#e8f5e9;border-radius:8px">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
           <input type="checkbox" id="autoSyncChk" style="width:18px;height:18px;cursor:pointer">
@@ -2407,23 +2436,74 @@ function cloudSyncPanel(){
           </div>
         </label>
       </div>
-
       <div style="margin-top:16px;padding:12px;background:#fff3e0;border-radius:8px">
         <p class="xs" style="line-height:1.6;color:var(--amber)">
           <b>使用说明：</b><br>
-          1. 先在上方填入 GitHub Token 并保存<br>
-          2. 点击「上传到云端」将当前数据保存到云端<br>
-          3. 在另一台设备打开此页面，点击「从云端恢复」<br>
-          4. 建议每次编辑后上传，切换设备前下载
+          1. Token 仅需配置一次，更换浏览器/设备时需重新配置<br>
+          2. 配置后编辑数据将自动上传到云端<br>
+          3. 在另一台设备打开页面会自动检测并同步<br>
+          4. 也可手动点击上传/下载进行同步
         </p>
       </div>
     </div>
   `);
-  // 自动同步开关
   setTimeout(()=>{
     const autoChk=document.getElementById('autoSyncChk');
     if(autoChk){autoChk.checked=isAutoSyncEnabled();autoChk.onchange=()=>setAutoSync(autoChk.checked)}
   },100);
+}
+
+async function saveTokenInline(){
+  const token=document.getElementById('tokenInputInline').value.trim();
+  const msg=document.getElementById('tokenMsgInline');
+  if(!token){msg.style.color='#c62828';msg.textContent='请输入 Token';return}
+  if(!token.startsWith('ghp_')&&!token.startsWith('github_pat_')){msg.style.color='#c62828';msg.textContent='Token 格式不正确，应以 ghp_ 或 github_pat_ 开头';return}
+  msg.style.color='#f57c00';msg.textContent='正在验证 Token...';
+  try{
+    const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}`,{
+      headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
+    });
+    if(!r.ok){
+      if(r.status===401)throw new Error('Token 无效或已过期');
+      if(r.status===403)throw new Error('Token 权限不足，请确保勾选了 repo 权限');
+      throw new Error('验证失败: HTTP '+r.status);
+    }
+    setSyncToken(token);
+    localStorage.setItem('auto_sync','1');
+    msg.style.color='#2e7d32';msg.textContent='✓ Token 验证成功，自动同步已启用！正在上传数据...';
+    setTimeout(()=>{
+      if(typeof closeSheet==='function')closeSheet();
+      cloudSyncPanel();
+      autoCloudUpload();
+    },1500);
+  }catch(e){
+    msg.style.color='#c62828';msg.textContent='✗ '+e.message;
+  }
+}
+
+async function validateToken(token){
+  try{
+    const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}`,{
+      headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
+    });
+    return r.ok;
+  }catch(e){return false}
+}
+
+async function checkTokenStatus(){
+  const token=getSyncToken();
+  const st=$('#cloudSyncStatus');
+  if(!token){
+    if(st)st.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">点击配置同步Token</a></span>';
+    return;
+  }
+  const valid=await validateToken(token);
+  if(!valid){
+    localStorage.removeItem(TOKEN_KEY);
+    if(st)st.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">Token已失效，点击重新配置</a></span>';
+  }else{
+    if(st)st.textContent='☁️ 自动同步已启用';
+  }
 }
 
 async function cloudUpload(){
@@ -2522,6 +2602,9 @@ function autoCloudUpload(){
           localStorage.setItem('cloud_last_sync',ts);
           localStorage.setItem('cloud_last_sync_ts',String(Date.now()));
           const st2=$('#cloudSyncStatus');if(st2)st2.textContent='☁️ 已同步: '+ts;
+        }else if(r.status===401||r.status===403){
+          localStorage.removeItem(TOKEN_KEY);
+          const st2=$('#cloudSyncStatus');if(st2)st2.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">Token已失效，点击重新配置</a></span>';
         }else{
           const st2=$('#cloudSyncStatus');if(st2)st2.textContent='☁️ 同步失败，点击云同步重试';
         }
@@ -2540,6 +2623,12 @@ async function autoCloudCheck(){
     const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}?_t=${Date.now()}`,{
       headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
     });
+    if(r.status===401||r.status===403){
+      localStorage.removeItem(TOKEN_KEY);
+      const st=$('#cloudSyncStatus');
+      if(st)st.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">Token已失效，点击重新配置</a></span>';
+      return;
+    }
     if(!r.ok)return;
     const j=await r.json();
     const data=JSON.parse(decodeURIComponent(escape(atob(j.content))));
@@ -5345,8 +5434,11 @@ function init(){
   go('home_page');
   // 自动加载外部日报/趋势数据文件
   loadExternalReports();
-  // 自动检查云端同步
-  setTimeout(autoCloudCheck,2000);
+  // 检查 Token 状态并自动同步
+  setTimeout(async()=>{
+    await checkTokenStatus();
+    autoCloudCheck();
+  },2000);
 }
 const BUILTIN_EDU_DAILY=[{"id": "edu_20260813_01", "date": "2026-08-13", "time": "23:00", "category": "省级动态", "title": "福建省教育厅部署2026年青少年学生读书活动暨“学习新思想，做好接班人”主题活动", "source": "福建省教育厅（闽教思〔2026〕7号）", "content": "8月13日，福建省教育厅发布通知，决定开展2026年福建省青少年学生读书活动暨“学习新思想，做好接班人”主题活动。\n活动包括四大方面：一是加强“书香校园”建设，鼓励学校每周开设1-2节阅读课，开展“每天阅读一小时”“周末阅享半日”行动；二是优化阅读资源，实施青少年阅读大使项目，推动校长教师率先读书；三是创新科技赋能，用好国家智慧教育读书平台2.0版，推动“AI读助手”逐步覆盖中小学；四是推进知行合一，联合博物馆、文化馆等开展“行走阅读”。\n主题活动还包括“学‘习语金句’”“讲中国故事”“追领袖足迹”三项内容，结合建党105周年和红军长征胜利90周年重要时间节点开展主题教育。"}, {"id": "edu_20260813_02", "date": "2026-08-13", "time": "23:00", "category": "省级动态", "title": "福建省第八届中华经典诵写讲大赛汉字书写现场决赛将于8月14日在泉州举办", "source": "福建省教育厅办公室", "content": "福建省教育厅办公室通知，定于8月14日在泉州师范学院举办第八届中华经典诵写讲大赛汉字书写现场决赛。经线上评审，共遴选出924件优秀作品入围现场决赛。\n比赛时间：8月14日14:30开始，选手须提前半小时入场。此举旨在弘扬中华优秀传统文化，提升学生汉字书写能力和审美素养。"}, {"id": "edu_20260813_03", "date": "2026-08-13", "time": "23:00", "category": "省级动态", "title": "福建省开展2026年省级职业教育重点建设项目申报和评估工作", "source": "福建省教育厅", "content": "福建省教育厅发布通知，开展2026年省级职业教育重点建设项目申报和已立项建设项目评估工作。\n项目内容包括：市域产教联合体、行业产教融合共同体、职业教育专业群、校企合作典型生产实践项目、职业教育示范性虚拟仿真实训基地、职业教育精品在线开放课程等。聚焦福建省级及以上开发区、产业园区发展需求，由高水平高职院校牵头统筹区域内职教资源。"}, {"id": "edu_20260813_04", "date": "2026-08-13", "time": "23:00", "category": "厦门动态", "title": "厦门市2026年中考招生政策解读：体育中考取消基本知识测试，三大球改为选考", "source": "厦门市教育局", "content": "厦门市教育局解读2026年中考招生政策，主要变化包括：\n1. 体育中考：总分40分不变，取消体育与健康基本知识测试（4分），身体素质与运动技能测试由36分调整为40分。篮球、足球、排球三大球抽考改为选考，考生可从3项中自选1项。\n2. 照顾录取政策调整：取消3项照顾政策（海岛少数民族考生加3分、第一类高层次人才子女加3分、残疾考生优先录取），其余照顾政策不变。\n3. 特色多样招生扩容：新增厦门高新学校等面向全市招生的普通高中，新增多个特色班。\n4. 2026年总分值仍为800分加照顾分。"}, {"id": "edu_20260813_05", "date": "2026-08-13", "time": "23:00", "category": "厦门动态", "title": "厦门市2026年中招录取工作顺利完成，各校最低投档分数线已公布", "source": "厦门市教育局", "content": "厦门市2026年中招录取工作有序推进。7月27日已公布中招普高学校最低投档分数和位次，同时公布中招体育艺术类自主招生投档名单及中职剩余招生计划。\n省示范高中及建设校共9所：厦门一中、双十中学、厦门外国语学校、厦门六中、集美中学、同安一中、厦门二中、科技中学、厦门实验中学。省一级达标高中共20所，新增2所尚未定级普通高中。\n定向生政策保持稳定：厦门一中思明校区、双十中学枋湖校区等校普通生招生计划的70%指标面向片区初中招收定向生。"}, {"id": "edu_20260813_06", "date": "2026-08-13", "time": "23:00", "category": "语文教学", "title": "福建中考语文命题趋势分析：从死记硬背转向活学活用", "source": "综合福建中考语文试卷分析", "content": "近三年福建中考语文试卷命题趋势分析：\n古诗文默写：2023年2道直接默写+6道理解性默写，2024年8道全为理解性默写，2025年全面转向情境触发式默写，结合社区图书馆布置、美丽乡村建设等真实场景考查。\n语言运用：从选择填空到会写会用，2025年改为根据意思写成语；病句题从选择题改为指出病因并修改。\n名著阅读：从考查人物情节到整本书思辨，2025年要求驳斥沙僧作用微小等观点，结合具体情节论证。\n备考建议：回归教材（42首古诗词+27篇文言文），注重深度理解而非机械记忆，关注非名句考查。"}, {"id": "edu_20260813_07", "date": "2026-08-13", "time": "23:00", "category": "班主任提示", "title": "新学期班主任工作要点：读书活动、暑假收心、开学准备", "source": "综合教育通知", "content": "新学期班主任工作提示：\n1. 读书活动落实：配合省教育厅书香校园建设要求，制定班级阅读计划，落实每天阅读一小时，每周开设1-2节阅读课，建立班级图书角，开展阅读分享会。\n2. 暑假收心教育：距开学约2周，提醒学生调整作息，完成暑假作业，做好开学心理准备。\n3. 中华经典诵写讲大赛：关注8月14日汉字书写现场决赛结果，鼓励学生参与传统文化活动。\n4. 中考政策关注：初三班主任需了解2026年中考体育项目变化（取消基本知识测试、三大球改为选考），及时向学生和家长传达。"}];
 const BUILTIN_ZHKAO_TREND=[{"id": "zhkao_20260813_01", "date": "2026-08-13", "title": "2023-2025年福建中考语文命题趋势深度分析", "tags": ["命题趋势", "情境化命题", "核心素养", "备考策略"], "content": "一、古诗文默写：从死记硬背到情境运用\n2023年：2道直接默写+6道理解性默写，考查古诗词37首+文言文27篇。\n2024年：8道全为理解性默写，篇目覆盖七八九年级。\n2025年：彻底告别上下句填空，全面转向情境触发式默写，如结合社区图书馆布置、美丽乡村建设等真实场景考查，要求学生深入理解诗文内涵。\n【对标课标】2022版课标语言建构与运用素养，强调在真实情境中运用语言文字的能力。\n\n二、语言运用：从选择填空到会写会用\n字：从会读会写到理解构字，考查形声字规律、象形会意等构字法。\n词：2023-2024年为挖三空选择成语，2025年改为根据意思写成语，要求准确书写和运用。\n句：2023年为选择题，2024年起改为指出病因并修改句子，错误类型包括成分残缺、搭配不当、语序不当等。\n【对标课标】语言建构与运用+思维发展与提升，强调实践应用能力。\n\n三、名著阅读：从背考点到整本书思辨\n2023年：侧重考查人物形象和核心情节，如《骆驼祥子》的三起三落。\n2024年：要求根据不同文本类型选择阅读方法，从整体把握作品主题。\n2025年：强化整本书思辨，如驳斥沙僧作用微小的观点，要求结合具体情节论证，倒逼深度阅读。\n【对标课标】审美鉴赏与创造+文化传承与理解，注重批判性思维培养。\n\n四、备考策略建议\n1. 回归教材：重点掌握42首古诗词+27篇文言文，做到无死角复习。\n2. 深度理解：理解每句诗的含义、背景和适用场景，能在不同情境中灵活调用。\n3. 整本书阅读：完整阅读《西游记》《水浒传》《朝花夕拾》《骆驼祥子》《简·爱》等必考名著。\n4. 辩证思考：学会对人物和情节提出独立见解。\n5. 联系现实：将名著精神与当代青年责任结合。"}, {"id": "zhkao_20260813_02", "date": "2026-08-13", "title": "2025年福建中考语文试卷深度评析及2026年备考策略", "tags": ["试卷评析", "情境命题", "备考策略", "核心素养"], "content": "一、2025年试卷总体特点\n情境化命题贯穿全卷，强调实践应用。试题以活动任务为载体，将知识考查融入具体情境，注重解决实际问题的能力。\n语言运用部分要求补全句子、写人物简评，均以名著阅读交流、短文写作为情境；阅读题围绕品读古代散文、学习革命作品等主题活动设计设问。\n\n二、各板块分析\n1. 积累与运用（约占14%）\n古诗文默写全面情境化，不再考查直接默写。语言运用考查从识别转向产出。\n\n2. 阅读（约占43-49%）\n文言文阅读注重理解性考查，强调在具体语境中理解词义和句意。现代文阅读强化思辨能力。名著阅读突出整本书理念，考查深度阅读和批判性思维。\n\n3. 写作（约占40%）\n2024年作文《探月与看月》结合中国探月工程的时事成就，2025年作文融入数字时代、劳动精神等社会热点，同时植入福州古厝保护、本土文化传承等地域元素。\n跨学科情境成为亮点，试题打破学科壁垒。\n\n三、2026年备考策略\n1. 夯实基础：教材为主，注重理解和运用，不机械刷题。\n2. 情境化训练：在真实生活场景中练习语言运用。\n3. 阅读深度化：从做题转向读书，培养真正的阅读能力和思辨能力。\n4. 写作生活化：关注社会热点，积累素材，练习在真实情境中表达观点。\n5. 核心素养导向：对标2022版课标四大核心素养，全面提升语文综合能力。"}, {"id": "zhkao_20260813_03", "date": "2026-08-13", "title": "福建中考语文对标2022版课程标准：知识点与能力维度标注", "tags": ["课程标准", "知识点标注", "能力维度", "核心素养"], "content": "一、语言建构与运用\n1. 古诗文默写：情境触发式默写，考查语言积累与建构\n2. 字词考查：形声字规律、构字法，考查语言文字理解与运用\n3. 成语运用：根据意思写成语，考查语言表达与交流\n4. 病句修改：指出病因并修改，考查语言逻辑与规范\n\n二、思维发展与提升\n1. 名著阅读思辨：驳斥观点、论证分析，考查批判性思维、逻辑推理\n2. 阅读理解深层分析：评价文本、推断隐含意义，考查分析综合、鉴赏评价\n3. 写作思辨：议论性文章写作，考查逻辑表达、辩证思维\n\n三、审美鉴赏与创造\n1. 古代散文品读：感受语言之美、意境之美，考查审美感知、审美评价\n2. 文学作品赏析：分析写作手法、表达效果，考查审美鉴赏、文学理解\n3. 创意写作：情境写作、续写改写，考查审美创造、文学表达\n\n四、文化传承与理解\n1. 传统文化元素：古诗文、文言文，考查传统文化理解与传承\n2. 红色革命作品阅读：革命精神、家国情怀，考查革命文化认同\n3. 地域文化融入：福州古厝、福建元素，考查地方文化认同与传播\n4. 时代精神考查：探月工程、劳动精神、数字时代，考查时代精神理解与表达\n\n五、教学启示\n1. 创设真实情境：将知识考查融入生活场景，避免孤立训练。\n2. 强化思辨教学：课堂中设置辩论、评论环节，培养批判性思维。\n3. 推进整本书阅读：制定学期阅读计划，开展读书分享会、读书笔记展评。\n4. 跨学科融合：语文与历史、信息技术、艺术等学科结合，设计综合性学习任务。\n5. 关注地域文化：挖掘福建本土文化资源（朱子文化、海丝文化、闽南文化等），融入日常教学。"}];
