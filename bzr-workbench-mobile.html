@@ -2686,8 +2686,9 @@ function cloudSyncPanel(){
         <button class="btn btn-out" style="flex:1" onclick="cloudDownload()">⬇️ 从云端恢复</button>
       </div>
       <div style="background:var(--card);border-radius:10px;padding:12px;text-align:center">
-        <div class="xs muted">上次同步时间</div>
-        <div style="font-size:13px;margin-top:4px">${esc(lastSync)}</div>
+        <div class="xs muted">同步状态</div>
+        <div id="syncPanelStatus" style="font-size:13px;margin-top:4px;font-weight:600">${lastSync==='从未同步'?'尚未同步过':'上次同步: '+esc(lastSync)}</div>
+        <button class="btn btn-out" style="margin-top:10px;font-size:12px;padding:5px 14px" onclick="manualSyncTest()">🔄 立即同步</button>
       </div>
       <div style="margin-top:16px;padding:12px;background:#e8f5e9;border-radius:8px">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
@@ -2814,34 +2815,79 @@ function autoCloudUpload(){
   const token=getSyncToken();
   if(!token)return;
   if(_autoSyncTimer)clearTimeout(_autoSyncTimer);
+  const st=$('#cloudSyncStatus');if(st)st.textContent='☁️ 正在同步...';
+  const sp=$('#syncPanelStatus');if(sp)sp.textContent='正在上传数据...';
   _autoSyncTimer=setTimeout(()=>{
     _autoSyncTimer=null;
-    const data=JSON.stringify(DB);
-    const b64=btoa(unescape(encodeURIComponent(data)));
-    let sha=null;
-    fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}`,{
-      headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
-    }).then(r=>{if(r.ok)return r.json();return null}).then(j=>{if(j)sha=j.sha}).finally(()=>{
-      const body={message:'自动同步 '+new Date().toLocaleString('zh-CN'),content:b64,branch:'main'};
-      if(sha)body.sha=sha;
-      fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}`,{
-        method:'PUT',
-        headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
-        body:JSON.stringify(body)
-      }).then(r=>{
-        if(r.ok){
-          const now=new Date();
-          const ts=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-          localStorage.setItem('cloud_last_sync',ts);
-          localStorage.setItem('cloud_last_sync_ts',String(Date.now()));
-          const st=$('#cloudSyncStatus');if(st)st.textContent='☁️ 已同步: '+ts;
-        }else if(r.status===401||r.status===403){
-          localStorage.removeItem(TOKEN_KEY);
-          const st=$('#cloudSyncStatus');if(st)st.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">Token已失效</a></span>';
-        }
-      }).catch(()=>{});
-    });
+    doCloudUpload(token).then(result=>{
+      const st2=$('#cloudSyncStatus');
+      const sp2=$('#syncPanelStatus');
+      if(result.ok){
+        if(st2)st2.textContent='☁️ 已同步: '+result.ts;
+        if(sp2)sp2.textContent='✓ 同步成功: '+result.ts;
+      }else if(result.status===401||result.status===403){
+        localStorage.removeItem(TOKEN_KEY);
+        if(st2)st2.innerHTML='<span style="color:var(--amber)">⚠️ <a href="#" onclick="cloudSyncPanel();return false" style="color:var(--amber)">Token已失效</a></span>';
+        if(sp2){sp2.style.color='#c62828';sp2.textContent='✗ Token无效或权限不足'}
+      }else{
+        if(st2)st2.textContent='☁️ 同步失败';
+        if(sp2){sp2.style.color='#c62828';sp2.textContent='✗ 失败: '+result.message}
+      }
+    }).catch(()=>{});
   },3000);
+}
+
+async function doCloudUpload(token){
+  const data=JSON.stringify(DB);
+  const b64=btoa(unescape(encodeURIComponent(data)));
+  let sha=null;
+  try{
+    const r1=await fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}`,{
+      headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json'}
+    });
+    if(r1.ok){const j=await r1.json();sha=j.sha}
+  }catch(e){}
+  const body={message:'自动同步 '+new Date().toLocaleString('zh-CN'),content:b64,branch:'main'};
+  if(sha)body.sha=sha;
+  const r=await fetch(`https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}`,{
+    method:'PUT',
+    headers:{'Authorization':`token ${token}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+  if(r.ok){
+    const now=new Date();
+    const ts=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    localStorage.setItem('cloud_last_sync',ts);
+    localStorage.setItem('cloud_last_sync_ts',String(Date.now()));
+    return{ok:true,ts};
+  }else{
+    let msg='HTTP '+r.status;
+    try{const e=await r.json();if(e.message)msg=e.message}catch(_){}
+    return{ok:false,status:r.status,message:msg};
+  }
+}
+
+function manualSyncTest(){
+  const token=getSyncToken();
+  if(!token){toast('请先配置 Token','err');cloudSyncPanel();return}
+  const sp=$('#syncPanelStatus');if(sp){sp.style.color='';sp.textContent='正在同步...'}
+  const st=$('#cloudSyncStatus');if(st)st.textContent='☁️ 正在同步...';
+  doCloudUpload(token).then(result=>{
+    const sp2=$('#syncPanelStatus');
+    const st2=$('#cloudSyncStatus');
+    if(result.ok){
+      if(sp2){sp2.style.color='#2e7d32';sp2.textContent='✓ 同步成功: '+result.ts}
+      if(st2)st2.textContent='☁️ 已同步: '+result.ts;
+      toast('同步成功 ✓');
+    }else{
+      if(sp2){sp2.style.color='#c62828';sp2.textContent='✗ 失败: '+result.message}
+      if(st2)st2.textContent='☁️ 同步失败';
+      toast('同步失败: '+result.message,'err');
+    }
+  }).catch(()=>{
+    const sp2=$('#syncPanelStatus');if(sp2){sp2.style.color='#c62828';sp2.textContent='✗ 网络错误'}
+    toast('网络错误','err');
+  });
 }
 
 async function autoCloudCheck(){
